@@ -62,4 +62,7 @@ class ChessModel(nn.Module):
         )
     def forward(self, x):
         return self.classifier(self.convstack(x))
-    
+model= ChessModel()
+loss_fn=nn.CrossEntropyLoss
+optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
+print(model.state_dict())
