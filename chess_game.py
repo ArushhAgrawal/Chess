@@ -3,6 +3,9 @@ import torch
 from torch import nn
 import numpy as np
 import chess.pgn
+#device agnostic code
+device= "mps" if torch.mps.is_available() else "cpu"
+
 #function to convert chess board to tensor
 def board_to_tensor(board):
     #mapping
@@ -37,6 +40,23 @@ def encoding(move):
 # tensor_chess_board= board_to_tensor(chess_board)
 # print(tensor_chess_board)
 
+#preparing the dataset
+def prepare_dataset(pgn_file,max_game):
+    x=[]
+    y=[]
+    with open(pgn_file, "r") as pgn:
+        game_count=0
+        while game_count<max_game:
+            game= chess.pgn.read_game(pgn)
+            if game is None:
+                break
+            board= game.board()
+            for move in game.mainline_moves():#game.mainline_moves() gives us the moves in the game
+                x.append(board_to_tensor(board))
+                y.append(encoding(move))
+                board.push(move)#board.push(move) updates the board with the move that was just made
+            game_count+=1
+
 #writing boiler plate stuff
 class ChessModel(nn.Module):
     def __init__(self):
@@ -63,6 +83,17 @@ class ChessModel(nn.Module):
     def forward(self, x):
         return self.classifier(self.convstack(x))
 model= ChessModel()
-loss_fn=nn.CrossEntropyLoss
+loss_fn=nn.CrossEntropyLoss()
 optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
-print(model.state_dict())
+# print(model.parameters())
+
+#training the model
+def train_model(model,x,y,loss_fn,optimizer,epochs):
+    torch.mps.manual_seed(32)
+    for epoch in range(epochs):
+        model.train()
+        y_logit_train=model(x)
+        loss=loss_fn(y_logit_train, y)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
