@@ -65,12 +65,13 @@ def prepare_dataset(pgn_file,max_game):
     return x_tensor, y_tensor
 
 #giving dataset to the model
-x_train, y_train= prepare_dataset("Modern.pgn", 14000)#raw datset
+all_x, all_y= prepare_dataset("Modern.pgn", 17000)#raw datset
+x_train, y_train= all_x[:14000], all_y[:14000]#raw datset
 chess_train_dataset= td(x_train, y_train)#dataset in tensor format
 train_dataloader= DataLoader(chess_train_dataset, batch_size=32, shuffle=True)#loading the dataset
 
-x_train, y_train= prepare_dataset("Modern.pgn", 2000)#raw datset
-chess_test_dataset= td(x_train, y_train)
+x_test, y_test= all_x[14000:], all_y[14000:]#raw datset(slicing it so we can skip data repetition)
+chess_test_dataset= td(x_test, y_test)
 test_dataloader= DataLoader(chess_test_dataset, batch_size=32, shuffle=True)
 
 # t,f= next(iter(train_dataloader
