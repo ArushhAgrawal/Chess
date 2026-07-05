@@ -3,6 +3,10 @@ import torch
 from torch import nn
 import numpy as np
 import chess.pgn
+import torchvision
+from torchvision import datasets, transforms
+from torchvision.transforms import ToTensor
+from torch.utils.data import DataLoader, TensorDataset as td
 #device agnostic code
 device= "mps" if torch.mps.is_available() else "cpu"
 
@@ -56,6 +60,21 @@ def prepare_dataset(pgn_file,max_game):
                 y.append(encoding(move))
                 board.push(move)#board.push(move) updates the board with the move that was just made
             game_count+=1
+    x_tensor= torch.stack(x)
+    y_tensor= torch.tensor(y, dtype=torch.float32)
+    return x_tensor, y_tensor
+
+#giving dataset to the model
+x_train, y_train= prepare_dataset("Modern.pgn", 14000)#raw datset
+chess_train_dataset= td(x_train, y_train)#dataset in tensor format
+train_dataloader= DataLoader(chess_train_dataset, batch_size=32, shuffle=True)#loading the dataset
+
+x_train, y_train= prepare_dataset("Modern.pgn", 2000)#raw datset
+chess_test_dataset= td(x_train, y_train)
+test_dataloader= DataLoader(chess_test_dataset, batch_size=32, shuffle=True)
+
+# t,f= next(iter(train_dataloader
+# print(t.shape)
 
 #writing boiler plate stuff
 class ChessModel(nn.Module):
