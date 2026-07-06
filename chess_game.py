@@ -20,7 +20,7 @@ def board_to_tensor(board):
         chess.ROOK:3,
         chess.QUEEN:4,
         chess.KING:5}
-    chess_board= np.zeros((12,8,8),dtype=np.float64)
+    chess_board= np.zeros((12,8,8),dtype=np.float32)#changed to 32 bit directly
     #loop through all the squares on the chess board
     for square in chess.SQUARES:
         piece= board.piece_at(square)
@@ -57,7 +57,7 @@ def prepare_dataset(pgn_file,start_game, end_game):
             if game_count>=start_game and game_count<end_game:
                 board= game.board()
                 for move in game.mainline_moves():#game.mainline_moves() gives us the moves in the game
-                    x.append(torch.tensor(board_to_tensor(board)))
+                    x.append(torch.from_numpy(board_to_tensor(board)))#changed it to torch.from_numpy better performance
                     y.append(encoding(move))
                     board.push(move)#board.push(move) updates the board with the move that was just made
             game_count+=1
@@ -69,11 +69,11 @@ def prepare_dataset(pgn_file,start_game, end_game):
 #raw datset
 x_train, y_train=prepare_dataset("Modern.pgn", 0, 14000)#raw datset
 chess_train_dataset= td(x_train, y_train)#dataset in tensor format
-train_dataloader= DataLoader(chess_train_dataset, batch_size=256, shuffle=True)#loading the dataset
+train_dataloader= DataLoader(chess_train_dataset, batch_size=512, shuffle=True)#loading the dataset
 x,y= next(iter(train_dataloader))#getting the first batch of data
 x_test, y_test= prepare_dataset("Modern.pgn", 14000, 17000)#raw datset(slicing it so we can skip data repetition)
 chess_test_dataset= td(x_test, y_test)
-test_dataloader= DataLoader(chess_test_dataset, batch_size=48, shuffle=False)
+test_dataloader= DataLoader(chess_test_dataset, batch_size=512, shuffle=False)
 
 # t,f= next(iter(train_dataloader
 # print(t.shape)
@@ -89,20 +89,22 @@ class ChessModel(nn.Module):
             nn.Conv2d(64,128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.Conv2d(128,128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(128,64, kernel_size=3, padding=1),#using 3x3 lower decent 
+            nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Conv2d(128,128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU()
-        ).to(device)
+            nn.Conv2d(64,32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32,2, kernel_size=1),
+            nn.BatchNorm2d(2),
+        )
         self.classifier= nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128*8*8, 4096)
-        ).to(device)
+            nn.Linear(2*8*8, 4096)
+        )
     def forward(self, x):
         return self.classifier(self.convstack(x))
-model= ChessModel()
+model= ChessModel().to(device)
 loss_fn=nn.CrossEntropyLoss()
 optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
 # print(model.parameters())
