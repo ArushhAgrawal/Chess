@@ -20,7 +20,7 @@ def board_to_tensor(board):
         chess.ROOK:3,
         chess.QUEEN:4,
         chess.KING:5}
-    chess_board= np.zeros((12,8,8),dtype=np.float32)
+    chess_board= np.zeros((12,8,8),dtype=np.float64)
     #loop through all the squares on the chess board
     for square in chess.SQUARES:
         piece= board.piece_at(square)
@@ -33,7 +33,7 @@ def board_to_tensor(board):
             if piece.color==chess.BLACK:
                 piece_layer+=6
             chess_board[piece_layer, r,c]=1.0
-    return torch.Tensor(chess_board)
+    return chess_board
 
 #encoding moves, giving them a unique number for model to understand later
 def encoding(move):
@@ -45,34 +45,35 @@ def encoding(move):
 # print(tensor_chess_board)
 
 #preparing the dataset
-def prepare_dataset(pgn_file,max_game):
+def prepare_dataset(pgn_file,start_game, end_game):
     x=[]
     y=[]
-    with open(pgn_file, "r") as pgn:
+    with open(pgn_file, "r", encoding="utf-8", errors="replace") as pgn:
         game_count=0
-        while game_count<max_game:
+        while game_count<end_game:
             game= chess.pgn.read_game(pgn)
             if game is None:
                 break
-            board= game.board()
-            for move in game.mainline_moves():#game.mainline_moves() gives us the moves in the game
-                x.append(board_to_tensor(board))
-                y.append(encoding(move))
-                board.push(move)#board.push(move) updates the board with the move that was just made
+            if game_count>=start_game and game_count<end_game:
+                board= game.board()
+                for move in game.mainline_moves():#game.mainline_moves() gives us the moves in the game
+                    x.append(torch.tensor(board_to_tensor(board)))
+                    y.append(encoding(move))
+                    board.push(move)#board.push(move) updates the board with the move that was just made
             game_count+=1
     x_tensor= torch.stack(x)
-    y_tensor= torch.tensor(y, dtype=torch.float32)
+    y_tensor= torch.tensor(y, dtype=torch.int64)
     return x_tensor, y_tensor
 
 #giving dataset to the model
-all_x, all_y= prepare_dataset("Modern.pgn", 17000)#raw datset
-x_train, y_train= all_x[:14000], all_y[:14000]#raw datset
+#raw datset
+x_train, y_train=prepare_dataset("Modern.pgn", 0, 14000)#raw datset
 chess_train_dataset= td(x_train, y_train)#dataset in tensor format
-train_dataloader= DataLoader(chess_train_dataset, batch_size=32, shuffle=True)#loading the dataset
-
-x_test, y_test= all_x[14000:], all_y[14000:]#raw datset(slicing it so we can skip data repetition)
+train_dataloader= DataLoader(chess_train_dataset, batch_size=256, shuffle=True)#loading the dataset
+x,y= next(iter(train_dataloader))#getting the first batch of data
+x_test, y_test= prepare_dataset("Modern.pgn", 14000, 17000)#raw datset(slicing it so we can skip data repetition)
 chess_test_dataset= td(x_test, y_test)
-test_dataloader= DataLoader(chess_test_dataset, batch_size=32, shuffle=True)
+test_dataloader= DataLoader(chess_test_dataset, batch_size=48, shuffle=False)
 
 # t,f= next(iter(train_dataloader
 # print(t.shape)
@@ -94,12 +95,11 @@ class ChessModel(nn.Module):
             nn.Conv2d(128,128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU()
-        )
+        ).to(device)
         self.classifier= nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128*8*8, 4096),
-            nn.ReLU()
-        )
+            nn.Linear(128*8*8, 4096)
+        ).to(device)
     def forward(self, x):
         return self.classifier(self.convstack(x))
 model= ChessModel()
@@ -108,12 +108,24 @@ optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
 # print(model.parameters())
 
 #training the model
-def train_model(model,x,y,loss_fn,optimizer,epochs):
+def train_model(model,train,test,loss_fn,optimizer,epochs):
     torch.mps.manual_seed(32)
     for epoch in range(epochs):
         model.train()
-        y_logit_train=model(x)
-        loss=loss_fn(y_logit_train, y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        for batch, (x,y) in enumerate(train):
+            x=x.to(device, dtype=torch.float32)
+            y=y.to(device, dtype=torch.int64)
+            y_logit_train=model(x)
+            loss_train=loss_fn(y_logit_train, y)
+            optimizer.zero_grad()
+            loss_train.backward()
+            optimizer.step()
+        model.eval()
+        with torch.inference_mode():
+            for batch, (x,y) in enumerate(test):
+                x=x.to(device, dtype=torch.float32)
+                y=y.to(device, dtype= torch.int64)
+                y_logit_test=model(x)
+                loss_test=loss_fn(y_logit_test, y)
+    return loss_train, loss_test
+print(train_model(model,train_dataloader,test_dataloader,loss_fn,optimizer,epochs=2))
