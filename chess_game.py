@@ -7,6 +7,8 @@ import torchvision
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader, TensorDataset as td
+import os
+import time
 #device agnostic code
 device= "mps" if torch.mps.is_available() else "cpu"
 
@@ -67,11 +69,21 @@ def prepare_dataset(pgn_file,start_game, end_game):
 
 #giving dataset to the model
 #raw datset
-x_train, y_train=prepare_dataset("Modern.pgn", 0, 14000)#raw datset
+train_cache= "train_cache.pt"
+test_cache="test_cache.pt"
+if not os.path.exists(train_cache):
+    print("Preparing training dataset...")
+    x_train, y_train= prepare_dataset("Modern.pgn", 0, 14000)
+    x_test, y_test= prepare_dataset("Modern.pgn", 14000, 17000)
+    print("saving training dataset to cache...")
+    torch.save((x_train.to(torch.uint8),y_train), train_cache)
+    torch.save((x_test.to(torch.uint8),y_test), test_cache)
+else:
+    print("Loading training dataset from cache...")
+    x_train, y_train= torch.load(train_cache)
+    x_test, y_test= torch.load(test_cache)
 chess_train_dataset= td(x_train, y_train)#dataset in tensor format
 train_dataloader= DataLoader(chess_train_dataset, batch_size=512, shuffle=True)#loading the dataset
-x,y= next(iter(train_dataloader))#getting the first batch of data
-x_test, y_test= prepare_dataset("Modern.pgn", 14000, 17000)#raw datset(slicing it so we can skip data repetition)
 chess_test_dataset= td(x_test, y_test)
 test_dataloader= DataLoader(chess_test_dataset, batch_size=512, shuffle=False)
 
@@ -112,6 +124,7 @@ optimizer=torch.optim.Adam(model.parameters(), lr=0.001)
 #training the model
 def train_model(model,train,test,loss_fn,optimizer,epochs):
     torch.mps.manual_seed(32)
+    start= time.time()
     for epoch in range(epochs):
         model.train()
         for batch, (x,y) in enumerate(train):
@@ -129,5 +142,6 @@ def train_model(model,train,test,loss_fn,optimizer,epochs):
                 y=y.to(device, dtype= torch.int64)
                 y_logit_test=model(x)
                 loss_test=loss_fn(y_logit_test, y)
-    return loss_train, loss_test
-print(train_model(model,train_dataloader,test_dataloader,loss_fn,optimizer,epochs=2))
+    end=time.time()
+    return loss_train, loss_test, end-start
+print(train_model(model,train_dataloader,test_dataloader,loss_fn,optimizer,epochs=4))
